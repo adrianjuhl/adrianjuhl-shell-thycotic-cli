@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+
+# Validates that the staged version of the script passes the tests.
+
+main()
+{
+  initialize
+  echo "git hook pre-commit--run-tests running ..."
+  get_project_root_directory
+  cd_to_project_root_directory
+  ./test/test_thycotic_cli.sh --file_source_location=staging_area
+}
+
+get_project_root_directory()
+{
+  project_root_directory="$(git rev-parse --show-toplevel)" || { echo "Error: Failed to determine the project root directory."; abort_script; }
+}
+
+cd_to_project_root_directory()
+{
+  cd "${project_root_directory}" || { echo "Error: Failed to cd into project root directory."; abort_script; }
+}
+
+initialize()
+{
+  set -o pipefail
+  THIS_SCRIPT_PROCESS_ID=$$
+  initialize_abort_script_config
+  initialize_this_script_directory_variable
+  initialize_this_script_name_variable
+  initialize_true_and_false_strings
+}
+
+initialize_this_script_directory_variable()
+{
+  # Determines the value of THIS_SCRIPT_DIRECTORY, the absolute directory name where this script resides.
+  # See: https://www.binaryphile.com/bash/2020/01/12/determining-the-location-of-your-script-in-bash.html
+  # See: https://stackoverflow.com/a/67149152
+  local last_command_return_code
+  THIS_SCRIPT_DIRECTORY=$(cd "$(dirname -- "${BASH_SOURCE[0]}")" || exit 1; cd -P -- "$(dirname "$(readlink -- "${BASH_SOURCE[0]}" || echo .)")" || exit 1; pwd)
+  last_command_return_code="$?"
+  if [ "${last_command_return_code}" -gt 0 ]; then
+    # This should not occur for the above command pipeline.
+    echo
+    echo "Error: Failed to determine the value of this_script_directory."
+    echo
+    abort_script
+  fi
+}
+
+initialize_this_script_name_variable()
+{
+  local path_to_invoked_script
+  local default_script_name
+  path_to_invoked_script="${BASH_SOURCE[0]}"
+  default_script_name=""
+  if grep -q '/dev/fd' <(dirname "${path_to_invoked_script}"); then
+    # The script was invoked via process substitution
+    if [ -z "${default_script_name}" ]; then
+      THIS_SCRIPT_NAME="<script invoked via file descriptor (process substitution) and no default name set>"
+    else
+      THIS_SCRIPT_NAME="${default_script_name}"
+    fi
+  else
+    THIS_SCRIPT_NAME="$(basename "${path_to_invoked_script}")"
+  fi
+}
+
+initialize_true_and_false_strings()
+{
+  # Bash doesn't have a native true/false, just strings and numbers,
+  # so this is as clear as it can be, using, for example:
+  # if [ "${my_boolean_var}" = "${TRUE_STRING}" ]; then
+  # where previously 'my_boolean_var' is set to either ${TRUE_STRING} or ${FALSE_STRING}
+  TRUE_STRING="true"
+  FALSE_STRING="false"
+}
+
+initialize_abort_script_config()
+{
+  # Exit shell script from within the script or from any subshell within this script - adapted from:
+  # https://cravencode.com/post/essentials/exit-shell-script-from-subshell/
+  # Exit with exit status 1 if this (top level process of this script) receives the SIGUSR1 signal.
+  # See also the abort_script() function which sends the signal.
+  trap "exit 1" SIGUSR1
+}
+
+abort_script()
+{
+  echo >&2 "aborting..."
+  kill -SIGUSR1 ${THIS_SCRIPT_PROCESS_ID}
+  exit
+}
+
+# Main entry into the script - call the main() function
+main "${@}"
